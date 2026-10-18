@@ -1,0 +1,85 @@
+from collections import Counter, defaultdict
+from pathlib import Path
+import re
+
+LOG_FILE = Path("logs/auth.log")
+FAILURE_THRESHOLD = 5
+
+def analyze_logs():
+    if not LOG_FILE.exists():
+        print(f"Error: Could not find {LOG_FILE}")
+        return
+
+    failed_by_ip = Counter()
+    users_by_ip = defaultdict(set)
+    total_events = 0
+    successful = 0
+    failed = 0
+    malformed = 0
+
+    pattern = re.compile(
+        r"IP=(\S+)\s+USER=(\S+)\s+STATUS=(SUCCESS|FAILED)"
+    )
+
+    with LOG_FILE.open("r", encoding="utf-8") as file:
+        for line in file:
+            match = pattern.search(line)
+
+            if not match:
+                malformed += 1
+                continue
+
+            ip, username, status = match.groups()
+            total_events += 1
+            users_by_ip[ip].add(username)
+
+            if status == "FAILED":
+                failed += 1
+                failed_by_ip[ip] += 1
+            else:
+                successful += 1
+
+    alerts = []
+
+    for ip, count in failed_by_ip.items():
+        if count >= FAILURE_THRESHOLD:
+            alerts.append(
+                f"Repeated failed logins: {ip} "
+                f"({count} failures)"
+            )
+
+    for ip, users in users_by_ip.items():
+        if len(users) >= 3:
+            alerts.append(
+                f"Multiple usernames attempted from {ip} "
+                f"({len(users)} usernames)"
+            )
+
+    report = [
+        "SECURITY LOG ANALYZER",
+        "=" * 35,
+        f"Total valid events: {total_events}",
+        f"Successful logins: {successful}",
+        f"Failed logins: {failed}",
+        f"Malformed lines: {malformed}",
+        "",
+        "ALERTS",
+        "-" * 35,
+    ]
+
+    if alerts:
+        report.extend(f"[ALERT] {alert}" for alert in alerts)
+    else:
+        report.append("No alerts triggered.")
+
+    output = "\n".join(report)
+    print(output)
+
+    Path("report.txt").write_text(
+        output + "\n", encoding="utf-8"
+    )
+    print("\nReport saved to report.txt")
+
+if __name__ == "__main__":
+    analyze_logs()
+
